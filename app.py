@@ -47,12 +47,20 @@ st.caption("Matriz (Excel) → apresentação PowerPoint")
 
 matriz_up = st.file_uploader("1) Matriz (.xlsx)", type=["xlsx"])
 
-template_padrao = sorted(TEMPLATES.glob("*.pptx")) if TEMPLATES.exists() else []
-if template_padrao:
-    nome = st.selectbox("2) Template", [p.name for p in template_padrao])
-    template_up = None
+# O template é fixo: usa o .pptx do repositório (pasta templates/ ou raiz) sem perguntar.
+template_padrao = sorted([*TEMPLATES.glob("*.pptx"), *RAIZ.glob("*.pptx")]) if TEMPLATES.exists() \
+    else sorted(RAIZ.glob("*.pptx"))
+template_up = None
+if len(template_padrao) == 1:
+    tpl_fixo = template_padrao[0]
+    st.caption(f"Template: {tpl_fixo.name}")
+elif len(template_padrao) > 1:
+    tpl_fixo = next((p for p in template_padrao if "template" in p.name.lower()), None) \
+        or st.selectbox("Template", template_padrao, format_func=lambda p: p.name)
 else:
-    template_up = st.file_uploader("2) Template (.pptx)", type=["pptx"])
+    tpl_fixo = None
+    template_up = st.file_uploader("Template (.pptx) — não encontrei nenhum no repositório",
+                                   type=["pptx"])
 
 if matriz_up is not None:
     work = Path(tempfile.mkdtemp())
@@ -69,7 +77,7 @@ if matriz_up is not None:
     ops = [o for o in listar_operadoras(matriz) if any(o.get(t, 0) > 0 for t in matriz.cenarios)]
     rotulos = {o["indice"]: f"{o['indice']} - {o['nome'] or '(sem nome)'}  |  "
                + "  ".join(f"{t} {f.brl_centavos(o[t])}" for t in matriz.cenarios) for o in ops}
-    escolha = st.multiselect(f"3) Operadoras (1 a {MAX_OPERADORAS})", list(rotulos),
+    escolha = st.multiselect(f"2) Operadoras (1 a {MAX_OPERADORAS})", list(rotulos),
                              format_func=rotulos.get, max_selections=MAX_OPERADORAS)
 
     col1, col2, col3 = st.columns(3)
@@ -83,8 +91,8 @@ if matriz_up is not None:
             if template_up is not None:
                 tpl = work / template_up.name
                 tpl.write_bytes(template_up.getvalue())
-            elif template_padrao:
-                tpl = TEMPLATES / nome
+            elif tpl_fixo is not None:
+                tpl = tpl_fixo
             else:
                 st.error("Envie o template .pptx.")
                 st.stop()
