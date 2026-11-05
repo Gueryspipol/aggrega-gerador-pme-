@@ -36,7 +36,7 @@ if not _na_pasta:
 
 from apresentador360 import formatos as f  # noqa: E402
 from apresentador360.calc import MAX_OPERADORAS, listar_operadoras  # noqa: E402
-from apresentador360.extract import carregar_matriz  # noqa: E402
+from apresentador360.extract import carregar_matriz, diagnosticar  # noqa: E402
 from apresentador360.pipeline import gerar, mes_do_arquivo  # noqa: E402
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -70,10 +70,14 @@ if matriz_up is not None:
     try:
         matriz = carregar_matriz(matriz_path)
     except Exception as e:  # noqa: BLE001
-        st.error(f"Não consegui ler a Matriz: {e}")
+        st.error("Não consegui ler a Matriz. Abaixo está o que o robô enxergou no arquivo "
+                 "(me envie este texto para eu ajustar a leitura):")
+        st.code(f"{e}\n\n{diagnosticar(matriz_path)}" if "Abas do arquivo" not in str(e) else str(e))
         st.stop()
 
     st.success(f"Cenários encontrados: {', '.join(matriz.cenarios)}")
+    with st.expander("O que o robô reconheceu na Matriz"):
+        st.code(diagnosticar(matriz_path))
     ops = [o for o in listar_operadoras(matriz) if any(o.get(t, 0) > 0 for t in matriz.cenarios)]
     rotulos = {o["indice"]: f"{o['indice']} - {o['nome'] or '(sem nome)'}  |  "
                + "  ".join(f"{t} {f.brl_centavos(o[t])}" for t in matriz.cenarios) for o in ops}
