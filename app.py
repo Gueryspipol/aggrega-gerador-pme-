@@ -13,8 +13,19 @@ RAIZ = Path(__file__).parent
 sys.path.insert(0, str(RAIZ / "src"))
 sys.path.insert(0, str(RAIZ))          # aceita também apresentador360/ direto na raiz
 
-if not (RAIZ / "src" / "apresentador360" / "__init__.py").exists() and \
-        not (RAIZ / "apresentador360" / "__init__.py").exists():
+_na_pasta = ((RAIZ / "src" / "apresentador360" / "__init__.py").exists()
+             or (RAIZ / "apresentador360" / "__init__.py").exists())
+if not _na_pasta and (RAIZ / "__init__.py").exists() and (RAIZ / "pipeline.py").exists():
+    # arquivos soltos na raiz do repositório (sem a pasta): a própria raiz vira o pacote
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location(
+        "apresentador360", RAIZ / "__init__.py", submodule_search_locations=[str(RAIZ)])
+    _pacote = importlib.util.module_from_spec(_spec)
+    sys.modules["apresentador360"] = _pacote
+    _spec.loader.exec_module(_pacote)
+    _na_pasta = True
+
+if not _na_pasta:
     st.error("Pasta do robô não encontrada no repositório.")
     st.markdown(
         "O repositório precisa ter **`src/apresentador360/`** com estes 9 arquivos: "
