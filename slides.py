@@ -14,8 +14,8 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 from . import formatos as f
 from .extract import FAIXA_INICIOS, FAIXA_ROTULOS
 from .models import CenarioCalc, Demografia, Estudo, OperadoraCalc
-from .pptx_writer import (clonar_caixa, definir_celula, definir_linhas, limpar,
-                          substituir_dados_grafico, substituir_regex)
+from .pptx_writer import (clonar_caixa, definir_celula, definir_linhas, definir_paragrafo,
+                          limpar, substituir_dados_grafico)
 
 # número do slide (1-based) de cada parte do template
 SLIDE_CAPA = 1
@@ -26,8 +26,8 @@ SLIDES_CENARIO = {
 }
 OPERADORAS_POR_SLIDE_FAIXAS = 2
 
-_RE_VALOR = re.compile(r"^-?R\$\s?[\d.,]+$")
-_RE_BADGE = re.compile(r"^[+-]?\d+%$")
+_RE_VALOR = re.compile(r"^-?R\$\s*[\d.,]*$")   # inclui o "R$ " vazio do template
+_RE_BADGE = re.compile(r"^[<>]?\s*[+-]?\d+(?:[.,]\d+)?%$")   # "-70%", "< 39,53%"
 _RE_MES = re.compile(r"^[A-ZÇ]{3}$")
 
 
@@ -96,15 +96,14 @@ def preencher_demografia(slide, demo: Demografia, cen: CenarioCalc) -> None:
 # --------------------------------------------------------------------------- #
 # Slides 14 / 18 – resumo executivo
 # --------------------------------------------------------------------------- #
-def preencher_resumo(slide, cen: CenarioCalc, estudo: Estudo, altura_slide: int,
-                     avisos: list[str]) -> None:
+def _colunas_resumo(slide, altura_slide: int):
+    """Cartões (colunas) do slide de resumo e as caixas de texto de cada coluna."""
     cartoes = sorted((s for s in slide.shapes
                       if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
                       and s.height >= 0.3 * altura_slide and not s.text_frame.text.strip()),
                      key=lambda s: s.left)
     if len(cartoes) < 3:
         raise ValueError("Slide de resumo: cartões de coluna não encontrados no template")
-
     por_coluna: dict[int, list] = {i: [] for i in range(len(cartoes))}
     for sh in _caixas_texto(slide):
         if not (0.15 * altura_slide < sh.top < 0.92 * altura_slide):
@@ -114,6 +113,26 @@ def preencher_resumo(slide, cen: CenarioCalc, estudo: Estudo, altura_slide: int,
             if c.left <= cx <= c.left + c.width:
                 por_coluna[i].append(sh)
                 break
+    return cartoes, por_coluna
+
+
+def posicao_menor_custo(prs, tipo: str = "CC") -> int:
+    """Posição (0 = primeira coluna de operadora) da coluna etiquetada 'Menor Custo' no template.
+    Se não houver etiqueta, 0."""
+    try:
+        slide = list(prs.slides)[SLIDES_CENARIO[tipo]["resumo"] - 1]
+        cartoes, por_coluna = _colunas_resumo(slide, prs.slide_height)
+    except (ValueError, IndexError):
+        return 0
+    for col in range(2, len(cartoes)):
+        if any("menor custo" in sh.text_frame.text.lower() for sh in por_coluna[col]):
+            return col - 2
+    return 0
+
+
+def preencher_resumo(slide, cen: CenarioCalc, estudo: Estudo, altura_slide: int,
+                     avisos: list[str]) -> None:
+    cartoes, por_coluna = _colunas_resumo(slide, altura_slide)
 
     def achar(col, teste):
         return [s for s in por_coluna[col] if teste(s.text_frame.text.strip())]
@@ -130,8 +149,12 @@ def preencher_resumo(slide, cen: CenarioCalc, estudo: Estudo, altura_slide: int,
                 definir_linhas(sh, [mes[0], str(mes[1])])
             else:
                 avisos.append(f"Slide de resumo {cen.tipo}: mês/ano da coluna {col + 1} não informado; mantido o do template")
-    for sh in achar(1, lambda t: "Reajuste" in t):
-        substituir_regex(sh, r"\d+(?:,\d+)?%", f.pct_2casas(cen.reajuste_pct))
+    for sh in achar(1, lambda t: "reajuste" in t.lower()):
+        for par in sh.text_frame.paragraphs:                # "Reajuste %" ou "Reajuste 11,83%"
+            txt = "".join(r.text for r in par.runs)
+            if "reajuste" in txt.lower():
+                definir_paragrafo(par, re.sub(r"(?i)(reajuste)\s*(?:\d+(?:[.,]\d+)?)?\s*%?",
+                                              lambda m: f"{m.group(1)} {f.pct_2casas(cen.reajuste_pct)}", txt))
 
     # colunas de operadoras
     n_cols = len(cartoes) - 2
@@ -256,7 +279,7 @@ def preencher_faixas(slide, cen: CenarioCalc, grupo: list[OperadoraCalc],
             sh = clonar_caixa(modelo, centros[c])
         if sh is not None:
             definir_linhas(sh, [plano.nome if plano is not None else ""])
-            if plano is not None and len(plano.nome) > 11:
+            if plano is not None and len(plano.nome) >= 10:
                 avisos.append(f"Slide de faixas {cen.tipo}: nome do plano '{plano.nome}' é longo e "
                               f"pode quebrar linha no rótulo; confira o slide")
 

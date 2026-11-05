@@ -5,8 +5,8 @@ Regras (conferidas contra as abas 'Análise Financeira' e 'Impacto Financeiro'):
 - total do plano = custo médio * nº de vidas do plano ATUAL
 - impacto mensal = total da operadora - fatura reajustada
 - impacto %     = total da operadora / fatura reajustada - 1
-- ordem das operadoras: menor custo no cenário CC primeiro; o SC segue a MESMA
-  ordem, mesmo que no SC a classificação mude.
+- ordem das operadoras: a de menor custo no CC fica na coluna "Menor Custo" do template, as demais
+  na ordem da seleção; o SC segue a MESMA ordem, mesmo que no SC a classificação mude.
 """
 from __future__ import annotations
 
@@ -125,13 +125,20 @@ def _calc_cenario(cen: CenarioMatriz, indices: list[int], nome_op, avisos: list[
 def calcular(matriz: Matriz, selecao: Optional[Selecao] = None, *,
              cliente: Optional[str] = None,
              mes_atual: Optional[tuple[str, int]] = None,
-             mes_reajuste: Optional[tuple[str, int]] = None) -> Estudo:
+             mes_reajuste: Optional[tuple[str, int]] = None,
+             posicao_menor_custo: int = 0) -> Estudo:
     avisos: list[str] = []
     indices = resolver_selecao(matriz, selecao)
 
-    # ordem definida pelo cenário de referência (CC; senão SC)
+    # Ordem das colunas: a operadora de MENOR CUSTO (no CC; senão SC) vai para a coluna etiquetada
+    # "Menor Custo" no template (posicao_menor_custo, 0 = primeira); as demais seguem a ordem em que
+    # foram selecionadas. O SC usa exatamente a mesma ordem, mesmo que lá o ranking mude.
     ref = matriz.cenarios.get("CC") or matriz.cenarios["SC"]
-    indices.sort(key=lambda i: (ref.blocos[i].total_mensal if i < len(ref.blocos) else float("inf"), i))
+    custo = lambda i: (ref.blocos[i].total_mensal if i < len(ref.blocos) else float("inf"), i)  # noqa: E731
+    menor = min(indices, key=custo)
+    resto = [i for i in indices if i != menor]
+    pos = max(0, min(posicao_menor_custo, len(resto)))
+    indices = resto[:pos] + [menor] + resto[pos:]
 
     nome_op = lambda i: _nome_operadora(matriz, i)  # noqa: E731
     cenarios = {}
