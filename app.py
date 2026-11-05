@@ -104,7 +104,14 @@ if matriz_up is not None:
             r = gerar(matriz_path, tpl, saida, operadoras=escolha, cliente=cliente or None,
                       mes_atual=mes_atual or None, mes_reajuste=mes_reaj or None)
         except Exception as e:  # noqa: BLE001
-            st.error(f"Erro ao gerar: {e}")
+            st.error(f"Erro ao gerar ({type(e).__name__}): {e or 'sem mensagem'}")
+            st.exception(e)
+            try:
+                from pptx import Presentation
+                from apresentador360.slides import resumo_template
+                st.code(resumo_template(Presentation(str(tpl))))
+            except Exception:  # noqa: BLE001
+                pass
         else:
             st.download_button("Baixar PowerPoint", saida.read_bytes(), file_name=saida.name,
                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")

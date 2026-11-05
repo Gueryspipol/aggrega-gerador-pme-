@@ -262,12 +262,63 @@ def preencher_faixas(slide, cen: CenarioCalc, grupo: list[OperadoraCalc],
 
 
 # --------------------------------------------------------------------------- #
+# Validação do template
+# --------------------------------------------------------------------------- #
+def _tem(slide, tipo: str) -> int:
+    if tipo == "tabela":
+        return sum(1 for s in slide.shapes if getattr(s, "has_table", False) and s.has_table)
+    if tipo == "grafico":
+        return sum(1 for s in slide.shapes if getattr(s, "has_chart", False) and s.has_chart)
+    return sum(1 for s in slide.shapes if s.has_text_frame and s.text_frame.text.strip())
+
+
+def resumo_template(prs, ate: int = 24) -> str:
+    """Uma linha por slide: o que o robô enxerga nele (para diagnosticar templates diferentes)."""
+    linhas = [f"O template tem {len(prs.slides)} slides."]
+    for i, sl in enumerate(prs.slides, 1):
+        if i > ate:
+            break
+        textos = [s.text_frame.text.strip().split("\n")[0] for s in sl.shapes
+                  if s.has_text_frame and s.text_frame.text.strip()]
+        linhas.append(f"  slide {i}: {_tem(sl, 'tabela')} tabela(s), {_tem(sl, 'grafico')} gráfico(s), "
+                      f"{len(textos)} texto(s) | {textos[0][:40] if textos else '(sem texto)'}")
+    return "\n".join(linhas)
+
+
+def validar_template(prs, tipos: list[str]) -> list[str]:
+    """Problemas que impedem o preenchimento (lista vazia = template compatível)."""
+    slides = list(prs.slides)
+    precisa = [SLIDE_CAPA, SLIDE_DEMOGRAFIA] + [n for t in tipos for n in (
+        SLIDES_CENARIO[t]["resumo"], SLIDES_CENARIO[t]["financeira"], *SLIDES_CENARIO[t]["faixas"])]
+    if len(slides) < max(precisa):
+        return [f"o template tem {len(slides)} slides, mas o robô espera ao menos {max(precisa)}"]
+    problemas = []
+    if _tem(slides[SLIDE_CAPA - 1], "texto") == 0:
+        problemas.append(f"slide {SLIDE_CAPA} (capa): não tem caixa de texto para o nome do cliente")
+    if _tem(slides[SLIDE_DEMOGRAFIA - 1], "grafico") == 0:
+        problemas.append(f"slide {SLIDE_DEMOGRAFIA} (painel demográfico): não tem gráficos")
+    for t in tipos:
+        m = SLIDES_CENARIO[t]
+        altura = prs.slide_height
+        cartoes = [s for s in slides[m["resumo"] - 1].shapes
+                   if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and s.height >= 0.3 * altura
+                   and not s.text_frame.text.strip()]
+        if len(cartoes) < 3:
+            problemas.append(f"slide {m['resumo']} (resumo {t}): esperava as colunas (cartões) de valores")
+        for n, nome in [(m["financeira"], "análise financeira"), *[(x, "custo por faixa etária") for x in m["faixas"]]]:
+            if _tem(slides[n - 1], "tabela") == 0:
+                problemas.append(f"slide {n} ({nome} {t}): esperava uma tabela e não achei")
+    return problemas
+
+
+# --------------------------------------------------------------------------- #
 def preencher_estudo(prs, estudo: Estudo, avisos: list[str]) -> list:
     """Preenche todos os slides e devolve a lista de slides a remover."""
     slides = list(prs.slides)
-    necessario = max(max(v["faixas"]) for v in SLIDES_CENARIO.values())
-    if len(slides) < necessario:
-        raise ValueError(f"Template tem {len(slides)} slides; esperava ao menos {necessario}")
+    problemas = validar_template(prs, list(estudo.cenarios))
+    if problemas:
+        raise ValueError("O template não tem a estrutura esperada:\n- " + "\n- ".join(problemas)
+                         + "\n\n" + resumo_template(prs))
     s = lambda n: slides[n - 1]   # noqa: E731
     remover = []
 
